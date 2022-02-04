@@ -4,4 +4,4 @@ Tracks flights in a specified area, takes photos (for raspberry pi with hq-camer
 
 ## Materials
 
-- Based on `dump1090` by [antirez](https://github.com/antirez/dump1090) and [MalcomRobb](https://github.com/MalcolmRobb/dump1090)
+- Based on `dump1090` by [antirez](https://github.com/antirez/dump1090) and [MalcolmRobb](https://github.com/MalcolmRobb/dump1090)
