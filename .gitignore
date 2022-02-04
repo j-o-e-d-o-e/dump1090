@@ -1,5 +1,5 @@
 *.o
-dump1090
+flight-tracker
 testfiles/*.bin
 misc
 frames.js
@@ -8,3 +8,12 @@ frames.js
 *.rej
 *.orig
 untrackedDeveloperSettings.js
+build
+/.idea
+http
+json
+photos
+scp
+dataAPI.h
+constants-flights.h
+local-paths.h
