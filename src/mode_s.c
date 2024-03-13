@@ -26,13 +26,13 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
 
 #include "dump1090.h"
+#include "interactive.h"
+#include "mode_ac.h"
+#include "mode_s.h"
 
-//
 // ===================== Mode S detection and decoding  ===================
-//
 // Parity table for MODE S Messages.
 // The table contains 112 elements, every element corresponds to a bit set
 // in the message, starting from the first bit of actual data after the
@@ -50,7 +50,6 @@
 // Note: this function can be used with DF11 and DF17, other modes have
 // the CRC xored with the sender address as they are reply to interrogations,
 // but a casual listener can't split the address from the checksum.
-//
 uint32_t modes_checksum_table[112] = {
         0x3935ea, 0x1c9af5, 0xf1b77e, 0x78dbbf, 0xc397db, 0x9e31e9, 0xb0e2f0, 0x587178,
         0x2c38bc, 0x161c5e, 0x0b0e2f, 0xfa7d13, 0x82c48d, 0xbe9842, 0x5f4c21, 0xd05c14,
@@ -70,12 +69,11 @@ uint32_t modes_checksum_table[112] = {
 
 uint32_t modesChecksum(unsigned char *msg, int bits) {
     uint32_t crc = 0;
-    uint32_t rem = 0;
+    uint32_t rem;
     int offset = (bits == 112) ? 0 : (112 - 56);
     uint8_t theByte = *msg;
     uint32_t *pCRCTable = &modes_checksum_table[offset];
     int j;
-
     // We don't really need to include the checksum itself
     bits -= 24;
     for (j = 0; j < bits; j++) {
@@ -87,26 +85,20 @@ uint32_t modesChecksum(unsigned char *msg, int bits) {
         pCRCTable++;
         theByte = theByte << 1;
     }
-
     rem = (msg[0] << 16) | (msg[1] << 8) | msg[2]; // message checksum
     return ((crc ^ rem) & 0x00FFFFFF); // 24 bit checksum syndrome.
 }
 
-//
 //=========================================================================
-//
 // Given the Downlink Format (DF) of the message, return the message length in bits.
 //
 // All known DF's 16 or greater are long. All known DF's 15 or less are short. 
 // There are lots of unused codes in both category, so we can assume ICAO will stick to 
 // these rules, meaning that the most significant bit of the DF indicates the length.
-//
 int modesMessageLenByType(int type) {
     return (type & 0x10) ? MODES_LONG_MSG_BITS : MODES_SHORT_MSG_BITS;
 }
-//
 //=========================================================================
-//
 // Try to fix single bit errors using the checksum. On success modifies
 // the original buffer with the fixed version, and returns the position
 // of the error bit. Otherwise if fixing failed -1 is returned.
@@ -138,7 +130,6 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
 }
 */
 //=========================================================================
-//
 // Similar to fixSingleBitErrors() but try every possible two bit combination.
 // This is very slow and should be tried only against DF17 messages that
 // don't pass the checksum, and only in Aggressive Mode.
@@ -183,9 +174,7 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
     return (-1);
 }
 */
-//
 //=========================================================================
-//
 // Code for introducing a less CPU-intensive method of correcting
 // single bit errors.
 //
@@ -205,7 +194,6 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
 // Run-time is binary search in a sorted table, plus some constant overhead,
 // instead of running through all possible bit positions (resp. pairs of
 // bit positions).
-//
 struct errorinfo {
     uint32_t syndrome;                 // CRC syndrome
     int bits;                     // Number of bit positions to fix
@@ -229,11 +217,9 @@ int cmpErrorInfo(const void *p0, const void *p1) {
     }
 }
 
-//
 //=========================================================================
-//
 // Compute the table of all syndromes for 1-bit and 2-bit error vectors
-void modesInitErrorInfo() {
+void modesInitErrorInfo(void) {
     unsigned char msg[MODES_LONG_MSG_BYTES];
     int i, j, n;
     uint32_t crc;
@@ -252,7 +238,6 @@ void modesInitErrorInfo() {
         bitErrorTable[n].pos[0] = i;
         bitErrorTable[n].pos[1] = -1;
         n += 1;
-
         if (Modes.nfix_crc > 1) {
             for (j = i + 1; j < MODES_LONG_MSG_BITS; j++) {
                 int bytepos1 = (j >> 3);
@@ -274,7 +259,6 @@ void modesInitErrorInfo() {
         msg[bytepos0] ^= mask0;          // revert error0
     }
     qsort(bitErrorTable, NERRORINFO, sizeof(struct errorinfo), cmpErrorInfo);
-
     // Test code: report if any syndrome appears at least twice. In this
     // case the correction cannot be done without ambiguity.
     // Tried it, does not happen for 1- and 2-bit errors. 
@@ -285,7 +269,6 @@ void modesInitErrorInfo() {
                             (int)bitErrorTable[i].syndrome);
         }
     }
-
     for (i = 0;  i < NERRORINFO;  i++) {
         printf("syndrome %06x    bit0 %3d    bit1 %3d\n",
                bitErrorTable[i].syndrome,
@@ -294,16 +277,13 @@ void modesInitErrorInfo() {
     */
 }
 
-//
 //=========================================================================
-//
 // Search for syndrome in table and if an entry is found, flip the necessary
 // bits. Make sure the indices fit into the array
 // Additional parameter: fix only less than maxcorrected bits, and record
 // fixed bit positions in corrected[]. This array can be NULL, otherwise
 // must be of length at least maxcorrected.
 // Return number of fixed bits.
-//
 int fixBitErrors(unsigned char *msg, int bits, int maxfix, char *fixedbits) {
     struct errorinfo *pei;
     struct errorinfo ei;
@@ -315,12 +295,10 @@ int fixBitErrors(unsigned char *msg, int bits, int maxfix, char *fixedbits) {
     if (pei == NULL) {
         return 0; // No syndrome found
     }
-
     // Check if the syndrome fixes more bits than we allow
     if (maxfix < pei->bits) {
         return 0;
     }
-
     // Check that all bit positions lie inside the message length
     offset = MODES_LONG_MSG_BITS - bits;
     for (i = 0; i < pei->bits; i++) {
@@ -329,7 +307,6 @@ int fixBitErrors(unsigned char *msg, int bits, int maxfix, char *fixedbits) {
             return 0;
         }
     }
-
     // Fix the bits
     for (i = res = 0; i < pei->bits; i++) {
         bitpos = pei->pos[i] - offset;
@@ -341,9 +318,7 @@ int fixBitErrors(unsigned char *msg, int bits, int maxfix, char *fixedbits) {
     return res;
 }
 
-//
 // ============================== Debugging =================================
-//
 // Helper function for dumpMagnitudeVector().
 // It prints a single bar used to display raw signals.
 //
@@ -355,7 +330,6 @@ int fixBitErrors(unsigned char *msg, int bits, int maxfix, char *fixedbits) {
 // "o" is 3
 // "-" is 2
 // "." is 1
-//
 void dumpMagnitudeBar(int index, int magnitude) {
     char *set = " .-o";
     char buf[256];
@@ -372,9 +346,7 @@ void dumpMagnitudeBar(int index, int magnitude) {
         printf("[%.2d] |%-66s 0x%04X\n", index, buf, magnitude);
 }
 
-//
 //=========================================================================
-//
 // Display an ASCII-art alike graphical representation of the undecoded
 // message as a magnitude signal.
 //
@@ -383,7 +355,6 @@ void dumpMagnitudeBar(int index, int magnitude) {
 //
 // If possible a few samples before the start of the messsage are included
 // for context.
-//
 void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
     uint32_t padding = 5; // Show a few samples before the actual start.
     uint32_t start = (offset < padding) ? 0 : offset - padding;
@@ -395,12 +366,9 @@ void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
     }
 }
 
-//
 //=========================================================================
-//
 // Produce a raw representation of the message as a Javascript file
 // loadable by debug.html.
-//
 void dumpRawMessageJS(char *descr, unsigned char *msg,
                       uint16_t *m, uint32_t offset, int fixable, char *bitpos) {
     int padding = 5; // Show a few samples before the actual start.
@@ -428,9 +396,7 @@ void dumpRawMessageJS(char *descr, unsigned char *msg,
     fclose(fp);
 }
 
-//
 //=========================================================================
-//
 // This is a wrapper for dumpMagnitudeVector() that also show the message
 // in hex format with an additional description.
 //
@@ -442,7 +408,6 @@ void dumpRawMessageJS(char *descr, unsigned char *msg,
 // The function also produces the Javascript file used by debug.html to
 // display packets in a graphical format if the Javascript output was
 // enabled.
-//
 void dumpRawMessage(char *descr, unsigned char *msg, uint16_t *m, uint32_t offset) {
     int j;
     int msgtype = msg[0] >> 3;
@@ -470,10 +435,9 @@ void dumpRawMessage(char *descr, unsigned char *msg, uint16_t *m, uint32_t offse
     dumpMagnitudeVector(m, offset);
     printf("---\n\n");
 }
-//
+
 //=========================================================================
-//
-// Code for testing the timing: run all possible 1- and 2-bit error 
+// Code for testing the timing: run all possible 1- and 2-bit error
 // the test message by all 1-bit errors. Run the old code against
 // all of them, and new the code.
 //
@@ -596,11 +560,10 @@ void testAndTimeBitCorrection() {
                NTWOBITS, difftvusec(&starttv, &endtv));
 }
 */
+
 //=========================================================================
-//
 // Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
 // elements, that is assumed to be a power of two
-//
 uint32_t ICAOCacheHashAddress(uint32_t a) {
     // The following three rounds wil make sure that every bit affects
     // every output bit with ~ 50% of probability.
@@ -610,26 +573,20 @@ uint32_t ICAOCacheHashAddress(uint32_t a) {
     return a & (MODES_ICAO_CACHE_LEN - 1);
 }
 
-//
 //=========================================================================
-//
 // Add the specified entry to the cache of recently seen ICAO addresses.
 // Note that we also add a timestamp so that we can make sure that the
 // entry is only valid for MODES_ICAO_CACHE_TTL seconds.
-//
 void addRecentlySeenICAOAddr(uint32_t addr) {
     uint32_t h = ICAOCacheHashAddress(addr);
     Modes.icao_cache[h * 2] = addr;
     Modes.icao_cache[h * 2 + 1] = (uint32_t) time(NULL);
 }
 
-//
 //=========================================================================
-//
 // Returns 1 if the specified ICAO address was seen in a DF format with
 // proper checksum (not xored with address) no more than * MODES_ICAO_CACHE_TTL
-// seconds ago. Otherwise returns 0.
-//
+// seconds ago. However, returns 0.
 int ICAOAddressWasRecentlySeen(uint32_t addr) {
     uint32_t h = ICAOCacheHashAddress(addr);
     uint32_t a = Modes.icao_cache[h * 2];
@@ -639,9 +596,7 @@ int ICAOAddressWasRecentlySeen(uint32_t addr) {
     return ((a) && (a == addr) && ((tn - t) <= MODES_ICAO_CACHE_TTL));
 }
 
-//
 //=========================================================================
-//
 // In the squawk (identity) field bits are interleaved as follows in
 // (message bit 20 to bit 32):
 //
@@ -653,7 +608,6 @@ int ICAOAddressWasRecentlySeen(uint32_t addr) {
 // number tha happens to represent the four octal numbers.
 //
 // For more info: http://en.wikipedia.org/wiki/Gillham_code
-//
 int decodeID13Field(int ID13Field) {
     int hexGillham = 0;
 
@@ -674,12 +628,9 @@ int decodeID13Field(int ID13Field) {
     return (hexGillham);
 }
 
-//
 //=========================================================================
-//
 // Decode the 13 bit AC altitude field (in DF 20 and others).
 // Returns the altitude, and set 'unit' to either MODES_UNIT_METERS or MDOES_UNIT_FEETS.
-//
 int decodeAC13Field(int AC13Field, int *unit) {
     int m_bit = AC13Field & 0x0040; // set = meters, clear = feet
     int q_bit = AC13Field & 0x0010; // set = 25 ft encoding, clear = Gillham Mode C encoding
@@ -707,11 +658,8 @@ int decodeAC13Field(int AC13Field, int *unit) {
     return 0;
 }
 
-//
 //=========================================================================
-//
 // Decode the 12 bit AC altitude field (in DF 17 and others).
-//
 int decodeAC12Field(int AC12Field, int *unit) {
     int q_bit = AC12Field & 0x10; // Bit 48 = Q
 
@@ -733,11 +681,8 @@ int decodeAC12Field(int AC12Field, int *unit) {
     }
 }
 
-//
 //=========================================================================
-//
 // Decode the 7 bit ground movement field PWL exponential style scale
-//
 int decodeMovementField(int movement) {
     int gspeed;
 
@@ -755,9 +700,7 @@ int decodeMovementField(int movement) {
     return (gspeed);
 }
 
-//
 //=========================================================================
-//
 // Capability table
 char *ca_str[8] = {
         /* 0 */ "Level 1 (Surveillance Only)",
@@ -808,12 +751,8 @@ char *es_str[8] = {
         /* 7 */ "Reserved"
 };
 
-//
-//=========================================================================
-//
 char *getMEDescription(int metype, int mesub) {
     char *mename = "Unknown";
-
     if (metype >= 1 && metype <= 4)
         mename = "Aircraft Identification and Category";
     else if (metype >= 5 && metype <= 8)
@@ -841,12 +780,9 @@ char *getMEDescription(int metype, int mesub) {
     return mename;
 }
 
-//
 //=========================================================================
-//
-// Decode a raw Mode S message demodulated as a stream of bytes by detectModeS(), 
+// Decode a raw Mode S message demodulated as a stream of bytes by detectModeS(),
 // and split it into fields populating a modesMessage structure.
-//
 void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     char *ais_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
 
@@ -860,7 +796,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     mm->crc = modesChecksum(msg, mm->msgbits);
 
     if ((mm->crc) && (Modes.nfix_crc) && ((mm->msgtype == 17) || (mm->msgtype == 18))) {
-//  if ((mm->crc) && (Modes.nfix_crc) && ((mm->msgtype == 11) || (mm->msgtype == 17))) {
+        // if ((mm->crc) && (Modes.nfix_crc) && ((mm->msgtype == 11) || (mm->msgtype == 17))) {
         //
         // Fixing single bit errors in DF-11 is a bit dodgy because we have no way to 
         // know for sure if the crc is supposed to be 0 or not - it could be any value 
@@ -880,15 +816,12 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                 mm->correctedbits = 0;
         }
     }
-    //
-    // Note that most of the other computation happens *after* we fix the 
+    // Note that most of the other computation happens *after* we fix the
     // single/two bit errors, otherwise we would need to recompute the fields again.
-    //
     if (mm->msgtype == 11) { // DF 11
         mm->iid = mm->crc;
         mm->addr = (msg[1] << 16) | (msg[2] << 8) | (msg[3]);
         mm->ca = (msg[0] & 0x07); // Responder capabilities
-
         if ((mm->crcok = (0 == mm->crc))) {
             // DF 11 : if crc == 0 try to populate our ICAO addresses whitelist.
             addRecentlySeenICAOAddr(mm->addr);
@@ -898,7 +831,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                 addRecentlySeenICAOAddr(mm->addr);
             }
         }
-
     } else if (mm->msgtype == 17) { // DF 17
         mm->addr = (msg[1] << 16) | (msg[2] << 8) | (msg[3]);
         mm->ca = (msg[0] & 0x07); // Responder capabilities
@@ -907,7 +839,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             // DF 17 : if crc == 0 try to populate our ICAO addresses whitelist.
             addRecentlySeenICAOAddr(mm->addr);
         }
-
     } else if (mm->msgtype == 18) { // DF 18
         mm->addr = (msg[1] << 16) | (msg[2] << 8) | (msg[3]);
         mm->ca = (msg[0] & 0x07); // Control Field
@@ -916,17 +847,14 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             // DF 18 : if crc == 0 try to populate our ICAO addresses whitelist.
             addRecentlySeenICAOAddr(mm->addr);
         }
-
     } else { // All other DF's
         // Compare the checksum with the whitelist of recently seen ICAO 
         // addresses. If it matches one, then declare the message as valid
         mm->crcok = ICAOAddressWasRecentlySeen(mm->addr = mm->crc);
     }
-
-    // If we're checking CRC and the CRC is invalid, then we can't trust any 
+    // If we're checking CRC and the CRC is invalid, then we can't trust any
     // of the data contents, so save time and give up now.
     if ((Modes.check_crc) && (!mm->crcok) && (!mm->correctedbits)) { return; }
-
     // Fields for DF0, DF16
     if (mm->msgtype == 0 || mm->msgtype == 16) {
         if (msg[0] & 0x04) {                       // VS Bit
@@ -935,7 +863,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->bFlags |= MODES_ACFLAGS_AOG_VALID;
         }
     }
-
     // Fields for DF11, DF17
     if (mm->msgtype == 11 || mm->msgtype == 17) {
         if (mm->ca == 4) {
@@ -944,7 +871,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->bFlags |= MODES_ACFLAGS_AOG_VALID;
         }
     }
-
     // Fields for DF5, DF21 = Gillham encoded Squawk
     if (mm->msgtype == 5 || mm->msgtype == 21) {
         int ID13Field = ((msg[2] << 8) | msg[3]) & 0x1FFF;
@@ -953,7 +879,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->modeA = decodeID13Field(ID13Field);
         }
     }
-
     // Fields for DF0, DF4, DF16, DF20 13 bit altitude
     if (mm->msgtype == 0 || mm->msgtype == 4 ||
         mm->msgtype == 16 || mm->msgtype == 20) {
@@ -963,7 +888,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->altitude = decodeAC13Field(AC13Field, &mm->unit);
         }
     }
-
     // Fields for DF4, DF5, DF20, DF21
     if ((mm->msgtype == 4) || (mm->msgtype == 20) ||
         (mm->msgtype == 5) || (mm->msgtype == 21)) {
@@ -974,20 +898,16 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             if (mm->fs & 1) { mm->bFlags |= MODES_ACFLAGS_AOG; }
         }
     }
-
     // Fields for DF17, DF18_CF0, DF18_CF1, DF18_CF6 squitters
     if ((mm->msgtype == 17)
         || ((mm->msgtype == 18) && ((mm->ca == 0) || (mm->ca == 1) || (mm->ca == 6)))) {
         int metype = mm->metype = msg[4] >> 3;   // Extended squitter message type
-        int mesub = mm->mesub = (metype == 29 ? ((msg[4] & 6) >> 1) : (msg[4] &
-                                                                       7));   // Extended squitter message subtype
-
+        // Extended squitter message subtype
+        int mesub = mm->mesub = (metype == 29 ? ((msg[4] & 6) >> 1) : (msg[4] & 7));
         // Decode the extended squitter message
-
         if (metype >= 1 && metype <= 4) { // Aircraft Identification and Category
             uint32_t chars;
             mm->bFlags |= MODES_ACFLAGS_CALLSIGN_VALID;
-
             chars = (msg[5] << 16) | (msg[6] << 8) | (msg[7]);
             mm->flight[3] = ais_charset[chars & 0x3F];
             chars = chars >> 6;
@@ -996,7 +916,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->flight[1] = ais_charset[chars & 0x3F];
             chars = chars >> 6;
             mm->flight[0] = ais_charset[chars & 0x3F];
-
             chars = (msg[8] << 16) | (msg[9] << 8) | (msg[10]);
             mm->flight[7] = ais_charset[chars & 0x3F];
             chars = chars >> 6;
@@ -1005,14 +924,10 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->flight[5] = ais_charset[chars & 0x3F];
             chars = chars >> 6;
             mm->flight[4] = ais_charset[chars & 0x3F];
-
             mm->flight[8] = '\0';
-
         } else if (metype == 19) { // Airborne Velocity Message
-
             // Presumably airborne if we get an Airborne Velocity Message
             mm->bFlags |= MODES_ACFLAGS_AOG_VALID;
-
             if ((mesub >= 1) && (mesub <= 4)) {
                 int vert_rate = ((msg[8] & 0x07) << 6) | (msg[9] >> 2);
                 if (vert_rate) {
@@ -1022,38 +937,32 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                     mm->bFlags |= MODES_ACFLAGS_VERTRATE_VALID;
                 }
             }
-
             if ((mesub == 1) || (mesub == 2)) {
                 int ew_raw = ((msg[5] & 0x03) << 8) | msg[6];
                 int ew_vel = ew_raw - 1;
                 int ns_raw = ((msg[7] & 0x7F) << 3) | (msg[8] >> 5);
                 int ns_vel = ns_raw - 1;
-
                 if (mesub == 2) { // If (supersonic) unit is 4 kts
                     ns_vel = ns_vel << 2;
                     ew_vel = ew_vel << 2;
                 }
-
-                if (ew_raw) { // Do East/West  
+                if (ew_raw) { // Do East/West
                     mm->bFlags |= MODES_ACFLAGS_EWSPEED_VALID;
                     if (msg[5] & 0x04) { ew_vel = 0 - ew_vel; }
                     mm->ew_velocity = ew_vel;
                 }
-
                 if (ns_raw) { // Do North/South
                     mm->bFlags |= MODES_ACFLAGS_NSSPEED_VALID;
                     if (msg[7] & 0x80) { ns_vel = 0 - ns_vel; }
                     mm->ns_velocity = ns_vel;
                 }
-
                 if (ew_raw && ns_raw) {
                     // Compute velocity and angle from the two speed components
                     mm->bFlags |= (MODES_ACFLAGS_SPEED_VALID | MODES_ACFLAGS_HEADING_VALID |
                                    MODES_ACFLAGS_NSEWSPD_VALID);
                     mm->velocity = (int) sqrt((ns_vel * ns_vel) + (ew_vel * ew_vel));
-
                     if (mm->velocity) {
-                        mm->heading = (int) (atan2(ew_vel, ns_vel) * 180.0 / M_PI);
+                        mm->heading = (int) (atan2(ew_vel, ns_vel) * 180.0 / 3.14159265358979323846);
                         // We don't want negative values but a 0-360 scale
                         if (mm->heading < 0) mm->heading += 360;
                     }
@@ -1517,7 +1426,7 @@ uint16_t clamped_scale(uint16_t v, uint16_t scale) {
 void applyPhaseCorrection(uint16_t *pPayload) {
     int j;
 
-    // we expect 1 bits at 0, 2, 7, 9
+    // we expect 1 bit at 0, 2, 7, 9
     // and 0 bits at -1, 1, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14
     // use bits -1,6 for early detection (bit 0/7 arrived a little early, our sample period starts after the bit phase so we include some of the next bit)
     // use bits 3,10 for late detection (bit 2/9 arrived a little late, our sample period starts before the bit phase so we include some of the last bit)
@@ -1615,36 +1524,27 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
         pPreamble = &m[j];
         pPayload = &m[j + MODES_PREAMBLE_SAMPLES];
-
         // Rather than clear the whole mm structure, just clear the parts which are required. The clear
         // is required for every bit of the input stream, and we don't want to be memset-ing the whole
         // modesMessage structure two million times per second if we don't have to..
         mm.bFlags =
         mm.crcok =
         mm.correctedbits = 0;
-
-        if (!use_correction)  // This is not a re-try with phase correction
-        {                 // so try to find a new preamble
-
+        if (!use_correction) {  // This is not a re-try with phase correction
+            // so try to find a new preamble
             if (Modes.mode_ac) {
                 int ModeA = detectModeA(pPreamble, &mm);
-
-                if (ModeA) // We have found a valid ModeA/C in the data                    
-                {
+                if (ModeA) { // We have found a valid ModeA/C in the data
                     mm.timestampMsg = Modes.timestampBlk + ((j + 1) * 6);
-
                     // Decode the received message
                     decodeModeAMessage(&mm, ModeA);
-
                     // Pass data to the next layer
                     useModesMessage(&mm);
-
                     j += MODEAC_MSG_SAMPLES;
                     Modes.stat_ModeAC++;
                     continue;
                 }
             }
-
             // First check of relations between the first 10 samples
             // representing a valid preamble. We don't even investigate further
             // if this simple test is not passed
@@ -1663,7 +1563,6 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                     dumpRawMessage("Unexpected ratio among first 10 samples", msg, m, j);
                 continue;
             }
-
             // The samples between the two spikes must be < than the average
             // of the high spikes level. We don't test bits too near to
             // the high levels as signals can be out of phase so part of the
@@ -1676,7 +1575,6 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                     dumpRawMessage("Too high level in samples between 3 and 6", msg, m, j);
                 continue;
             }
-
             // Similarly samples in the range 11-14 must be low, as it is the
             // space between the preamble and real data. Again we don't test
             // bits too near to high levels, see above
@@ -1700,7 +1598,6 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             pPayload = &aux[1 + MODES_PREAMBLE_SAMPLES];
             // TODO ... apply other kind of corrections
         }
-
         // Decode all the next 112 bits, regardless of the actual message
         // size. We'll check the actual message type later
         pMsg = &msg[0];
@@ -1710,14 +1607,12 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         errorsTy = 0;
         errors = 0;
         errors56 = 0;
-
-        // We should have 4 'bits' of 0/1 and 1/0 samples in the preamble, 
+        // We should have 4 'bits' of 0/1 and 1/0 samples in the preamble,
         // so include these in the signal strength 
         sigStrength = (pPreamble[0] - pPreamble[1])
                       + (pPreamble[2] - pPreamble[3])
                       + (pPreamble[7] - pPreamble[6])
                       + (pPreamble[9] - pPreamble[8]);
-
         msglen = scanlen = MODES_LONG_MSG_BITS;
         for (i = 0; i < scanlen; i++) {
             uint32_t a = *pPtr++;
@@ -1726,19 +1621,16 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             if (a > b) {
                 theByte |= 1;
                 if (i < 56) { sigStrength += (a - b); }
-            }
-            else if (a < b) {/*theByte |= 0;*/ if (i < 56) { sigStrength += (b - a); }}
+            } else if (a < b) {/*theByte |= 0;*/ if (i < 56) { sigStrength += (b - a); }}
             else if (i >= MODES_SHORT_MSG_BITS) //(a == b), and we're in the long part of a frame
             { errors++;  /*theByte |= 0;*/}
             else if (i >= 5)                    //(a == b), and we're in the short part of a frame
             {
                 scanlen = MODES_LONG_MSG_BITS;
-                errors56 = ++errors;/*theByte |= 0;*/}
-            else if (i)                         //(a == b), and we're in the message type part of a frame
+                errors56 = ++errors;/*theByte |= 0;*/} else if (i)                         //(a == b), and we're in the message type part of a frame
             {
                 errorsTy = errors56 = ++errors;
-                theErrs |= 1; /*theByte |= 0;*/}
-            else                                //(a == b), and we're in the first bit of the message type part of a frame
+                theErrs |= 1; /*theByte |= 0;*/} else                                //(a == b), and we're in the first bit of the message type part of a frame
             {
                 errorsTy = errors56 = ++errors;
                 theErrs |= 1;

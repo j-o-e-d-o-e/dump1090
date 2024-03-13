@@ -1,0 +1,7 @@
+#include "../test-framework/unity_fixture.h"
+
+TEST_GROUP_RUNNER(connect) {
+    RUN_TEST_CASE(connect, aircraftToJson);
+    RUN_TEST_CASE(connect, writeToFile);
+    RUN_TEST_CASE(connect, readFromFile);
+}

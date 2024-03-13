@@ -1,30 +1,27 @@
-#include <dirent.h>
 #include "dump1090.h"
-#include "data.h"
-#include "dataAPI.h"
-#include "constants-flights.h"
-#include "local-paths.h"
-
-#define CALL_SIGN_LEN 8
-#define ISO_DATE_LEN 64
-#define FILENAME_LEN 256
-#define JSON_LEN 1024
+#include "connect.h"
+#include "connect_api.h"
+#include "logger.h"
 
 // ================================ Json ====================================
 
-void trimTrailing(char *t, char *s) {
-    strcpy(t, s);
-    size_t i = strlen(t) - 1;
-    while (i >= 0) {
-        if (t[i] == ' ') i--;
-        else break;
+void trim(char *dest, char *src) {
+    unsigned char index = 0, leading_trimmed = 0;
+    for (size_t i = 0; i < strlen(src); i++) {
+        const char *c = &src[i];
+        if (*c != ' ') {
+            leading_trimmed = 1;
+            dest[index++] = *c;
+        } else if (leading_trimmed) {
+            dest[index] = '\0';
+            break;
+        }
     }
-    t[i + 1] = '\0';
 }
 
 char *aircraftToJson(struct aircraft *a, const int altitude, const int speed, time_t now) {
-    char callsign[CALL_SIGN_LEN];
-    trimTrailing(callsign, a->flight);
+    char callsign[strlen(a->flight)];
+    trim(callsign, a->flight);
     char date_time[ISO_DATE_LEN];
     strftime(date_time, ISO_DATE_LEN, "%FT%T", localtime(&now));
     char *json = (char *) malloc(JSON_LEN);
@@ -54,6 +51,7 @@ void writeToFile(char *json, time_t now) {
     fputs(json, fp);
     fputs("\n]\n", fp);
     fclose(fp);
+    writeLogEntry(0, "writeToFile", 2, filename, json);
 }
 
 char *readFromFile(time_t now) {
@@ -68,7 +66,7 @@ char *readFromFile(time_t now) {
         return "[]";
     }
     fseek(fp, 0, SEEK_END);
-    long file_size = ftell(fp);
+    size_t file_size = ftell(fp);
     rewind(fp);
     char *content = malloc(file_size + 1);
     size_t read = fread(content, 1, file_size, fp);
@@ -80,7 +78,7 @@ char *readFromFile(time_t now) {
 
 // =========================== Send/Receive json ===============================
 
-void un_idle_server() {
+void un_idle_server(void) {
     CURL *curl = curl_easy_init();
     curl_easy_setopt(curl, CURLOPT_URL, URL_UN_IDLE_SERVER);
     CURLcode res = curl_easy_perform(curl);
@@ -129,7 +127,9 @@ Data *parse(struct memory *response) {
         line[strlen(line) - 2] = '\0';
         if (count == buffer) {
             buffer *= 2;
-            data = realloc(data, sizeof(Data) + sizeof(struct flight) * buffer);
+            Data *tmp_data = realloc(data, sizeof(Data) + sizeof(struct flight) * buffer);
+            if (tmp_data == NULL) exit(EXIT_FAILURE);
+            data = tmp_data;
         }
         struct flight *flight = &(data->flights[count]);
         // ID
@@ -147,7 +147,9 @@ Data *parse(struct memory *response) {
         count++;
     }
     data->len = count;
-    data = realloc(data, sizeof(Data) + sizeof(struct flight) * data->len);
+    Data *tmp_data = realloc(data, sizeof(Data) + sizeof(struct flight) * data->len);
+    if (tmp_data == NULL) exit(EXIT_FAILURE);
+    data = tmp_data;
     return data;
 }
 
@@ -190,15 +192,15 @@ Data *httpPost(time_t t, char *content) {
 int get_timeout(struct aircraft *a, int speed, time_t now, int *secs_since_seen, double *lon_approx, int *dist_to_cam) {
     *secs_since_seen = (int) (now - a->seenLatLon);
     double meters_per_sec = speed / 3.6;
-    *lon_approx = secs_since_seen > 0 ?
+    *lon_approx = *secs_since_seen > 0 ?
                   a->lon - (int) (meters_per_sec * *secs_since_seen / DIST_LON) * 0.001
-                                      : a->lon;
+                                       : a->lon;
     *dist_to_cam = (int) ((*lon_approx - CAM_LON) * 1000) * DIST_LON;
     // e.g. 120m / 73.88m/s * 1000 = 1624s
     return (int) (*dist_to_cam / meters_per_sec * 1000);
 }
 
-char *takePhoto(struct aircraft *a, int speed, time_t now) {
+void takePhoto(struct aircraft *a, int speed, time_t now) {
     char dir[200];
     struct tm *date_time = localtime(&now);
     sprintf(dir, "%s/%04d-%02d-%02d", PHOTO_DIR, date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
@@ -214,20 +216,14 @@ char *takePhoto(struct aircraft *a, int speed, time_t now) {
     char dt[ISO_DATE_LEN];
     strftime(dt, ISO_DATE_LEN, "%FT%T", localtime(&now));
     char callsign[CALL_SIGN_LEN];
-    trimTrailing(callsign, a->flight);
+    trim(callsign, a->flight);
     sprintf(command, "raspistill --timeout %d --nopreview -o %s/img_%02d-%02d-%02d_%s.jpg &",
             timeout < 1100 ? 1100 : timeout > 5000 ? 5000 : timeout,
             dir, date_time->tm_hour, date_time->tm_min, date_time->tm_sec, callsign);
     system(command);
-
-    char *timeout_str = (char *) malloc(128);
-    sprintf(timeout_str,
-            "\"Pos last seen\":%d,\"lon/lat\":%.3f/%.3f,\"lon_approx\":%.3f,\"dist_cam\":%d,\"timeout\":%d",
-            secs_since_seen, a->lon, a->lat, lon_approx, dist_to_cam, timeout);
-    return timeout_str;
 }
 
-void cleanUpPhotos() {
+void cleanUpPhotos(void) {
     char command[250] = "";
     sprintf(command, "python3 %s &", PHOTO_CLEAN_UP_PY);
     system(command);
@@ -273,7 +269,7 @@ void httpPostPhotos(time_t now, Data *data) {
     struct flight flight;
     for (int i = 0; i < data->len; i++) {
         flight = data->flights[i];
-        char fn[FILENAME_LEN * 2];
+        char fn[560];
         sprintf(fn, "%s/img_%s_%s.jpg", photo_dir_date, flight.time, flight.callsign);
         if (access(fn, F_OK) == 0) postPhoto(flight.id, fn);
     }

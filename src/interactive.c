@@ -26,53 +26,19 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
 
 #include "dump1090.h"
-#include "data.h"
-#include "constants-flights.h"
+#include "interactive.h"
+#include "mode_ac.h"
+#include "mode_s.h"
+#include "connect.h"
+#include "stats.h"
 
 // ============================= Utility functions ==========================
 static uint64_t mstime(void) {
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return (uint64_t) (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
-}
-
-//============================== Stats =======================================
-// For total
-#define CACHE_LEN 20
-
-int newAddr(uint32_t addr) {
-    static uint32_t addresses[CACHE_LEN];
-    static int index = 0;
-    for (int i = 0; i < CACHE_LEN; i++) if (addr == addresses[i]) return 0;
-    if (index == CACHE_LEN) index = 0;
-    addresses[index] = addr;
-    index++;
-    return 1;
-}
-
-time_t statsStartTime(time_t now) {
-    struct tm date_time_now = *localtime(&now);
-    struct tm *date_time_start = localtime(&start_time);
-    if (date_time_now.tm_yday > date_time_start->tm_yday || date_time_now.tm_year > date_time_start->tm_year) {
-        date_time_now.tm_hour = 5;
-        date_time_now.tm_min = 55;
-        date_time_now.tm_sec = 0;
-        return mktime(&date_time_now);
-    }
-    return start_time;
-}
-
-float getAvg(const long total, const int diff_min) {
-    if (diff_min > 0) return (float) total / ((float) diff_min / 60.0f);
-    return 0;
-}
-
-float getFreq(const int diff_min, const long total) {
-    if (total > 0) return (float) diff_min / ((float) total);
-    return 0;
 }
 
 //========================== Validate ====================================
@@ -168,7 +134,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             mm->fLon = a->lon;
         }
     }
-    // Update the aircrafts a->bFlags to reflect the newly received mm->bFlags;
+    // Update aircraft a->bFlags to reflect the newly received mm->bFlags;
     a->bFlags |= mm->bFlags;
     if (mm->msgtype == 32) {
         int flags = a->modeACflags;
@@ -283,7 +249,7 @@ void interactiveUpdateAircraftModeA(struct aircraft *a) {
     }
 }
 
-void interactiveUpdateAircraftModeS() {
+void interactiveUpdateAircraftModeS(void) {
     struct aircraft *a = Modes.aircrafts;
     while (a) {
         int flags = a->modeACflags;
@@ -294,6 +260,18 @@ void interactiveUpdateAircraftModeS() {
         }
         a = a->next;
     }
+}
+
+//===========================================================================
+// Check if aircraft address has already been spotted
+unsigned char isNewAddr(uint32_t addr) {
+    static uint32_t addresses[CACHE_LEN];
+    static int index = 0;
+    for (int i = 0; i < CACHE_LEN; i++) if (addr == addresses[i]) return 0;
+    if (index == CACHE_LEN) index = 0;
+    addresses[index] = addr;
+    index++;
+    return 1;
 }
 
 //======================= Start interactive =================================
@@ -308,31 +286,12 @@ void interactiveShowData(struct aircraft *a) {
     interactiveUpdateAircraftModeS();
 
     printf("\x1b[H\x1b[2J");    // Clear the screen
-
-    static long total = 0;
-    float avg = 0, freq = 0;
     time_t now = time(NULL);
-    struct tm *date_time = localtime(&now);
-    if (date_time->tm_hour > 5) {
-        time_t start_time_stats = statsStartTime(now);
-        int diff_min = (int) difftime(now, start_time_stats) / 60;
-        avg = getAvg(total, diff_min);
-        freq = getFreq(diff_min, total);
-    } else {
-        total = 0;
-    }
-    printf("Total: %ld\tFreq: %.2fmin\tAvg/h: %.2f\tStart: %s", total, freq, avg, ctime(&start_time));
-    static char *json;
-    static char *photo_info;
-    if (json != (void *) 0){
-        printf("Last: %s\n", json);
-        printf("Photo: %s\n", photo_info);
-    }
-    printf("------------------------------------------------------------------------------------\n");
+    printStats(now);
     char spinner[4] = "|/-\\";
     char progress = spinner[now % 4];
-    printf("ICAO    Mode  Sqwk  Callsign  Alt   Spd  Hdg    Lat      Lon    Sig  Msgs   Ti  Til%c\n",
-           progress);
+    printf("------------------------------------------------------------------------------------\n");
+    printf("ICAO    Mode  Sqwk  Callsign  Alt   Spd  Hdg    Lat      Lon    Sig  Msgs   Ti  Til%c\n", progress);
     printf("------------------------------------------------------------------------------------\n");
 
     int count = 0;
@@ -345,13 +304,13 @@ void interactiveShowData(struct aircraft *a) {
                 continue;
             }
 
-            if (strlen(a->flight) != 0 && a->lon < SET_LON && newAddr(a->addr)) {
-                total++;
-                json = aircraftToJson(a, altitude, speed, now);
+            if (strlen(a->flight) != 0 && a->lon < SET_LON && isNewAddr(a->addr)) {
+                increaseTotal();
+                char *json = aircraftToJson(a, altitude, speed, now);
                 writeToFile(json, now);
 
 //#ifdef __arm__ // raspi
-                photo_info = takePhoto(a, speed, now);
+                takePhoto(a, speed, now);
 //#endif
             }
             long msgs = a->messages;
@@ -403,58 +362,56 @@ void interactiveShowData(struct aircraft *a) {
 
 //========================= Remove =======================================
 // Remove stale DF's from the interactive mode linked list
+// Only fiddle with the DF list if we gain possession of the mutex
+// If we fail to get the mutex we'll get another chance to tidy the
+// DF list in a second or so.
 void interactiveRemoveStaleDF(time_t now) {
+    if (pthread_mutex_trylock(&Modes.pDF_mutex)) return;
     struct stDF *prev = NULL;
-    // Only fiddle with the DF list if we gain possession of the mutex
-    // If we fail to get the mutex we'll get another chance to tidy the
-    // DF list in a second or so.
-    if (!pthread_mutex_trylock(&Modes.pDF_mutex)) {
-        struct stDF *pDF = Modes.pDF;
-        while (pDF) {
-            if ((now - pDF->seen) > Modes.interactive_delete_ttl) {
-                if (Modes.pDF == pDF) Modes.pDF = NULL;
-                else prev->pNext = NULL;
-                // All DF's in the list from here onwards will be time expired, so delete them all
-                while (pDF) {
-                    prev = pDF;
-                    pDF = pDF->pNext;
-                    free(prev);
-                }
-            } else {
+    struct stDF *pDF = Modes.pDF;
+    while (pDF) {
+        if ((now - pDF->seen) > Modes.interactive_delete_ttl) {
+            if (Modes.pDF == pDF) Modes.pDF = NULL;
+            else if (prev!= NULL) prev->pNext = NULL;
+            // All DF's in the list from here onwards will be time expired, so delete them all
+            while (pDF) {
                 prev = pDF;
                 pDF = pDF->pNext;
+                free(prev);
+                prev = NULL;
             }
+        } else {
+            prev = pDF;
+            pDF = pDF->pNext;
         }
-        pthread_mutex_unlock(&Modes.pDF_mutex);
     }
+    pthread_mutex_unlock(&Modes.pDF_mutex);
 }
 
 // When in interactive mode If we don't receive new messages within
 // MODES_INTERACTIVE_DELETE_TTL seconds we remove the aircraft from the list.
-void interactiveRemoveStaleAircrafts(struct aircraft *a) {
-    struct aircraft *prev = NULL;
+void interactiveRemoveStaleAircraft(struct aircraft *a) {
     time_t now = time(NULL);
-    // Only do cleanup once per second
-    if (Modes.last_cleanup_time != now) {
-        Modes.last_cleanup_time = now;
-        interactiveRemoveStaleDF(now);
-        while (a) {
-            if ((now - a->seen) > Modes.interactive_delete_ttl) {
-                // Remove the element from the linked list, with care
-                // if we are removing the first element
-                if (!prev) {
-                    Modes.aircrafts = a->next;
-                    free(a);
-                    a = Modes.aircrafts;
-                } else {
-                    prev->next = a->next;
-                    free(a);
-                    a = prev->next;
-                }
+    if (Modes.last_cleanup_time == now) return; // Only do cleanup once per second
+    struct aircraft *prev = NULL;
+    Modes.last_cleanup_time = now;
+    interactiveRemoveStaleDF(now);
+    while (a) {
+        if ((now - a->seen) > Modes.interactive_delete_ttl) {
+            // Remove the element from the linked list, with care
+            // if we are removing the first element
+            if (!prev) {
+                Modes.aircrafts = a->next;
+                free(a);
+                a = Modes.aircrafts;
             } else {
-                prev = a;
-                a = a->next;
+                prev->next = a->next;
+                free(a);
+                a = prev->next;
             }
+        } else {
+            prev = a;
+            a = a->next;
         }
     }
 }
