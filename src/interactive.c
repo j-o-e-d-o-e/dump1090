@@ -29,10 +29,10 @@
 
 #include "dump1090.h"
 #include "interactive.h"
-#include "mode_ac.h"
-#include "mode_s.h"
+#include "modes/mode_ac.h"
+#include "modes/mode_s.h"
 #include "connect.h"
-#include "stats.h"
+#include "utils/stats.h"
 
 // ============================= Utility functions ==========================
 static uint64_t mstime(void) {

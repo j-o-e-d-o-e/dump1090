@@ -29,7 +29,7 @@
 //
 #include "dump1090.h"
 #include "interactive.h"
-#include "mode_s.h"
+#include "modes/mode_s.h"
 
 struct programState Modes;
 

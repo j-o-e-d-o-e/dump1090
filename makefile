@@ -16,12 +16,12 @@ ASANFLAGS += -fno-omit-frame-pointer
 LIBS = -lpthread -lcurl -lm
 LIBS+= `pkg-config --libs librtlsdr`
 
-SRC_FILES := $(wildcard src/*.c)
+SRC_FILES := $(wildcard src/*.c src/modes/*.c src/utils/*.c)
 SRC_TARGET = bin/app.out
 UNITY_DIR  = test/test-framework
 INC_DIRS   = -Isrc -I$(UNITY_DIR)
 TEST_FILES:= $(filter-out src/main.c, \
-	$(wildcard src/*.c test/*.c test/test_runners/*.c \
+	$(wildcard $(SRC_FILES) test/*.c test/test_runners/*.c \
   $(UNITY_DIR)/unity.c $(UNITY_DIR)/unity_fixture.c))
 TEST_TARGET = bin/test.out
 MEM_CHECK_TARGET = bin/memcheck.out

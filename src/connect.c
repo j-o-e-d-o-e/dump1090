@@ -1,23 +1,10 @@
 #include "dump1090.h"
 #include "connect.h"
 #include "connect_api.h"
-#include "logger.h"
+#include "utils/logger.h"
+#include "utils/utils.h"
 
 // ================================ Json ====================================
-
-void trim(char *dest, char *src) {
-    unsigned char index = 0, leading_trimmed = 0;
-    for (size_t i = 0; i < strlen(src); i++) {
-        const char *c = &src[i];
-        if (*c != ' ') {
-            leading_trimmed = 1;
-            dest[index++] = *c;
-        } else if (leading_trimmed) {
-            dest[index] = '\0';
-            break;
-        }
-    }
-}
 
 char *aircraftToJson(struct aircraft *a, const int altitude, const int speed, time_t now) {
     char callsign[strlen(a->flight)];

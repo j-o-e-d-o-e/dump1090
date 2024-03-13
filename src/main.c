@@ -6,8 +6,8 @@
 #include "dump1090.h"
 #include "connect.h"
 #include "interactive.h"
-#include "mode_s.h"
-#include "stats.h"
+#include "modes/mode_s.h"
+#include "utils/stats.h"
 
 void showHelp(void) {
     printf("-----------------------------------------------------------------------------\n"

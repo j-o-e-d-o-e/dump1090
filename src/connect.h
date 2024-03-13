@@ -30,8 +30,6 @@ typedef struct {
     struct flight flights[];
 } Data;
 
-void trim(char *dest, char *src);
-
 char *aircraftToJson(struct aircraft *a, int altitude, int speed, time_t now);
 
 void writeToFile(char *json, time_t now);
