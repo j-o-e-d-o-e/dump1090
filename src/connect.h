@@ -1,14 +1,13 @@
 #pragma once
 
 #include <curl/curl.h>
+#include "main.h"
 #include "dump1090.h"
 
 #ifdef __arm__
-#define FILE_DIR "/home/pi/Desktop/flight_tracker/json"
-#define PHOTO_DIR "/home/pi/Desktop/flight_tracker/photos"
+#define PHOTO_DIR  FILE_DIR "/photos"
 #define PHOTO_CLEAN_UP_PY "/home/pi/Desktop/flight_tracker_img/cv2_img_ft.py"
 #else
-#define FILE_DIR "/home/joe/prog/c/traffic-tracker/v3/traffic_tracker"
 #define PHOTO_DIR ""
 #define PHOTO_CLEAN_UP_PY ""
 #endif
