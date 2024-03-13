@@ -42,7 +42,7 @@ char *readFromFile(time_t now);
 
 void unIdleServer(void);
 
-Data *httpPost(time_t now, char *json);
+Data *httpPostJson(char *json, time_t now);
 
 void takePhoto(struct aircraft *a, time_t now);
 

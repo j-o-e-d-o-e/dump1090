@@ -7,7 +7,7 @@
 // ================================ Json ====================================
 
 void aircraftToJson(struct aircraft *a, char *json) {
-    char callsign[strlen(a->flight)];
+    char callsign[strlen(a->flight) + 1];
     trim(callsign, a->flight);
     char date_time[ISO_DATE_MAX_LEN];
     strftime(date_time, ISO_DATE_MAX_LEN, "%FT%T", localtime(&a->seen));
@@ -57,7 +57,7 @@ char *readFromFile(time_t now) {
     fseek(fp, 0, SEEK_END);
     size_t file_size = ftell(fp);
     rewind(fp);
-    char *content = malloc(file_size + 1);
+    char *content = malloc(sizeof(char) * file_size + 1);
     size_t read = fread(content, 1, file_size, fp);
     if (read != file_size) fprintf(stderr, "Error reading from file");
     fclose(fp);
@@ -72,19 +72,18 @@ void unIdleServer(void) {
     CURL *curl = curl_easy_init();
     curl_easy_setopt(curl, CURLOPT_URL, URL_UN_IDLE_SERVER);
     CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) fprintf(stderr, "Error: %s\n", curl_easy_strerror(res));
+    if (res != CURLE_OK) writeLogEntry(3, "unIdleServer", 1, curl_easy_strerror(res));
     curl_easy_cleanup(curl);
 }
 
 static size_t write_cb(char *contents, size_t size, size_t nmemb, void *userp) {
-//    fprintf(stderr, "Got %lu bytes\n", (int) size * nmemb);
-    size_t realsize = size * nmemb;
+    size_t real_size = size * nmemb;
     struct memory *mem = (struct memory *) userp;
-    char *ptr = realloc(mem->memory, mem->size + realsize + 1); // one for terminating zero
+    char *ptr = realloc(mem->memory, mem->size + real_size + 1);
     if (ptr == NULL) return 0;
     mem->memory = ptr;
-    memcpy(&mem->memory[mem->size], contents, realsize);
-    mem->size += realsize;
+    memcpy(&mem->memory[mem->size], contents, real_size);
+    mem->size += real_size;
     mem->memory[mem->size] = 0; // not necessary
     return size * nmemb;
 }
@@ -113,7 +112,12 @@ Data *parse(struct memory *response) {
         if (count == buffer) {
             buffer *= 2;
             Data *tmp_data = realloc(data, sizeof(Data) + sizeof(struct flight) * buffer);
-            if (tmp_data == NULL) exit(EXIT_FAILURE);
+            if (tmp_data == NULL) {
+                free(data);
+                free(response->memory);
+                writeLogEntry(3, "parse", 1, "Parsing received data failed");
+                exit(EXIT_FAILURE);
+            }
             data = tmp_data;
         }
         struct flight *flight = &(data->flights[count]);
@@ -133,20 +137,25 @@ Data *parse(struct memory *response) {
     }
     data->len = count;
     Data *tmp_data = realloc(data, sizeof(Data) + sizeof(struct flight) * data->len);
-    if (tmp_data == NULL) exit(EXIT_FAILURE);
+    if (tmp_data == NULL) {
+        free(data);
+        free(response->memory);
+        writeLogEntry(3, "parse", 1, "Parsing received data failed");
+        exit(EXIT_FAILURE);
+    }
     data = tmp_data;
     return data;
 }
 
-Data *httpPost(time_t t, char *content) {
+Data *httpPostJson(char *json, time_t now) {
     CURL *curl = curl_easy_init();
     char url[FN_ABS_PATH_MAX_LEN()];
-    time_t yesterday = t - 24 * 60 * 60;
+    time_t yesterday = now - 24 * 60 * 60;
     struct tm *date_time = localtime(&yesterday);
     sprintf(url, "%s/%04d-%02d-%02d", URL_POST_FLIGHTS, date_time->tm_year + 1900, date_time->tm_mon + 1,
             date_time->tm_mday);
     curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, content);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, -1L);
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
     struct memory response = {.memory = NULL, .size = 0};
@@ -161,9 +170,11 @@ Data *httpPost(time_t t, char *content) {
     CURLcode res = curl_easy_perform(curl);
     Data *data = NULL;
     if (res != CURLE_OK) {
-        fprintf(stderr, "Returned %s\n", curl_easy_strerror(res));
+        writeLogEntry(3, "httpPostJson", 2, "Sending data failed: ", curl_easy_strerror(res));
     } else {
-        printf("Got %d bytes\n", (int) response.size);
+        char msg[20];
+        snprintf(msg, 20, "Got %zu bytes back", response.size);
+        writeLogEntry(1, "httpPostJson", 2, "Sending data succeeded: ", msg);
         if (response.size > 0) data = parse(&response);
     }
     free(response.memory);
@@ -200,7 +211,7 @@ void takePhoto(struct aircraft *a, time_t now) {
     char command[400] = "";
     char dt[ISO_DATE_MAX_LEN];
     strftime(dt, ISO_DATE_MAX_LEN, "%FT%T", localtime(&now));
-    char callsign[strlen(a->flight)];
+    char callsign[strlen(a->flight) + 1];
     trim(callsign, a->flight);
     sprintf(command, "raspistill --timeout %d --nopreview -o %s/img_%02d-%02d-%02d_%s.jpg &",
             timeout < 1100 ? 1100 : timeout > 5000 ? 5000 : timeout,
