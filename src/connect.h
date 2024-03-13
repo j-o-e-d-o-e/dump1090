@@ -24,6 +24,11 @@ struct flight {
     char time[20];
 };
 
+struct memory {
+    char *memory;
+    size_t size;
+};
+
 typedef struct {
     int len;
     struct flight flights[];

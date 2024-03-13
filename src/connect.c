@@ -76,11 +76,6 @@ void unIdleServer(void) {
     curl_easy_cleanup(curl);
 }
 
-struct memory {
-    char *memory;
-    size_t size;
-};
-
 static size_t write_cb(char *contents, size_t size, size_t nmemb, void *userp) {
 //    fprintf(stderr, "Got %lu bytes\n", (int) size * nmemb);
     size_t realsize = size * nmemb;
