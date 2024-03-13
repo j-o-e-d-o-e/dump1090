@@ -110,7 +110,7 @@ void processData(void) {
 #endif
         if (!Modes.flag_send && date_time->tm_hour == 5 && date_time->tm_min == 20) {
             char *content = readFromFile(now);
-            un_idle_server();
+            unIdleServer();
             Data *data = httpPost(now, content);
             if (data != NULL && data->len > 0) httpPostPhotos(now, data);
             free(data);

@@ -43,12 +43,12 @@ static uint64_t mstime(void) {
 
 //========================== Validate ====================================
 // Check if aircraft invalid
-int invalid(struct aircraft *a, int altitude, int speed) {
-    return altitude < MIN_ALT || altitude > MAX_ALT
+int invalid(struct aircraft *a) {
+    return a->altitude < MIN_ALT || a->altitude > MAX_ALT
            || a->track < MIN_HDG || a->track > MAX_HDG
            || a->lat < MIN_LAT || a->lat > MAX_LAT
            || a->lon < MIN_LON || a->lon > MAX_LON
-           || speed < MIN_SPD;
+           || a->speed < MIN_SPD;
 }
 
 //======================== Receive data (by mode_s) =================================
@@ -78,11 +78,12 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     // If a (new) ALTITUDE has been received, copy it to the aircraft structure
     if (mm->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) {
         // if we've a modeCcount already and altitude has changed
-        if ((a->modeCcount) && (a->altitude != mm->altitude)) {
+        int altitude = (int) (mm->altitude / 3.2828);
+        if ((a->modeCcount) && (a->altitude != altitude)) {
             a->modeCcount = 0;               // ... zero the hit count
             a->modeACflags &= ~MODEAC_MSG_MODEC_HIT;
         }
-        a->altitude = mm->altitude;
+        a->altitude = altitude;
         a->modeC = (mm->altitude + 49) / 100;
     }
     // If a (new) SQUAWK has been received, copy it to the aircraft structure
@@ -96,7 +97,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     // If a (new) HEADING has been received, copy it to the aircraft structure
     if (mm->bFlags & MODES_ACFLAGS_HEADING_VALID) a->track = mm->heading;
     // If a (new) SPEED has been received, copy it to the aircraft structure
-    if (mm->bFlags & MODES_ACFLAGS_SPEED_VALID) a->speed = mm->velocity;
+    if (mm->bFlags & MODES_ACFLAGS_SPEED_VALID) a->speed = (int) (mm->velocity * 1.852);
     // If a (new) Vertical Descent rate has been received, copy it to the aircraft structure
     if (mm->bFlags & MODES_ACFLAGS_VERTRATE_VALID) a->vert_rate = mm->vert_rate;
     // if the Aircraft has landed or taken off since the last message, clear the even/odd CPR flags
@@ -291,27 +292,24 @@ void interactiveShowData(struct aircraft *a) {
     char spinner[4] = "|/-\\";
     char progress = spinner[now % 4];
     printf("------------------------------------------------------------------------------------\n");
-    printf("ICAO    Mode  Sqwk  Callsign  Alt   Spd  Hdg    Lat      Lon    Sig  Msgs   Ti  Til%c\n", progress);
+    printf("ICAO    Mode  Sqwk  Callsign   Alt  Spd  Hdg   Lat       Lon    Sig  Msgs   Ti  Til%c\n", progress);
     printf("------------------------------------------------------------------------------------\n");
 
     int count = 0;
     while (a && (count < Modes.interactive_rows)) {
         if ((now - a->seen) < Modes.interactive_display_ttl) {
-            int altitude = (int) (a->altitude / 3.2828); // metric
-            int speed = (int) (a->speed * 1.852); // metric
-            if (invalid(a, altitude, speed)) {
+            if (invalid(a)) {
                 a = a->next;
                 continue;
             }
-
             if (strlen(a->flight) != 0 && a->lon < SET_LON && isNewAddr(a->addr)) {
                 increaseTotal();
-                char *json = aircraftToJson(a, altitude, speed, now);
-                writeToFile(json, now);
-
-//#ifdef __arm__ // raspi
-                takePhoto(a, speed, now);
-//#endif
+                char json[JSON_MAX_LEN];
+                aircraftToJson(a, json);
+                writeJsonToFile(json, now);
+#ifdef __arm__ // raspi
+                takePhoto(a, now);
+#endif
             }
             long msgs = a->messages;
             int flags = a->modeACflags;
@@ -330,10 +328,10 @@ void interactiveShowData(struct aircraft *a) {
 
                 char strAlt[6] = " ";
                 if (a->bFlags & MODES_ACFLAGS_AOG) snprintf(strAlt, 6, " grnd");
-                else if (a->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) snprintf(strAlt, 6, "%5d", altitude);
+                else if (a->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) snprintf(strAlt, 6, "%5d", a->altitude);
 
                 char strSpd[5] = " ";
-                if (a->bFlags & MODES_ACFLAGS_SPEED_VALID) snprintf(strSpd, 5, "%3d", speed);
+                if (a->bFlags & MODES_ACFLAGS_SPEED_VALID) snprintf(strSpd, 5, "%3d", a->speed);
 
                 char strHdg[5] = " ";
                 if (a->bFlags & MODES_ACFLAGS_HEADING_VALID) snprintf(strHdg, 5, "%03d", a->track);
@@ -372,7 +370,7 @@ void interactiveRemoveStaleDF(time_t now) {
     while (pDF) {
         if ((now - pDF->seen) > Modes.interactive_delete_ttl) {
             if (Modes.pDF == pDF) Modes.pDF = NULL;
-            else if (prev!= NULL) prev->pNext = NULL;
+            else if (prev != NULL) prev->pNext = NULL;
             // All DF's in the list from here onwards will be time expired, so delete them all
             while (pDF) {
                 prev = pDF;

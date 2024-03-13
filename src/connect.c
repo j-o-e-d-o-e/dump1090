@@ -6,23 +6,23 @@
 
 // ================================ Json ====================================
 
-char *aircraftToJson(struct aircraft *a, const int altitude, const int speed, time_t now) {
+void aircraftToJson(struct aircraft *a, char *json) {
     char callsign[strlen(a->flight)];
     trim(callsign, a->flight);
-    char date_time[ISO_DATE_LEN];
-    strftime(date_time, ISO_DATE_LEN, "%FT%T", localtime(&now));
-    char *json = (char *) malloc(JSON_LEN);
-    snprintf(json, JSON_LEN,
+    char date_time[ISO_DATE_MAX_LEN];
+    strftime(date_time, ISO_DATE_MAX_LEN, "%FT%T", localtime(&a->seen));
+    snprintf(json, JSON_MAX_LEN,
              "{\"icao_24\":\"%06X\",\"callsign\":\"%s\",\"altitude\":%d,\"speed\":%d,\"date_time\":\"%s\"}",
-             a->addr, callsign, altitude, speed, date_time);
-    return json;
+             a->addr, callsign, a->altitude, a->speed, date_time);
 }
 
-void writeToFile(char *json, time_t now) {
+void writeJsonToFile(char *json, time_t now) {
     struct tm *date_time = localtime(&now);
-    char filename[FILENAME_LEN];
-    sprintf(filename, "%s/flights_%04d-%02d-%02d.json", FILE_DIR, date_time->tm_year + 1900, date_time->tm_mon + 1,
-            date_time->tm_mday);
+    char relPath[FN_RELATIVE_PATH_MAX_LEN];
+    snprintf(relPath, FN_RELATIVE_PATH_MAX_LEN, "flights/%04d-%02d-%02d.json",
+             date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
+    char filename[FN_ABS_PATH_MAX_LEN()];
+    snprintf(filename, FN_ABS_PATH_MAX_LEN(), "/%s/%s", FILE_DIR, relPath);
     FILE *fp;
     if (access(filename, F_OK) != 0) {
         if ((fp = fopen(filename, "w")) == NULL) {
@@ -38,15 +38,17 @@ void writeToFile(char *json, time_t now) {
     fputs(json, fp);
     fputs("\n]\n", fp);
     fclose(fp);
-    writeLogEntry(0, "writeToFile", 2, filename, json);
+    writeLogEntry(1, "writeJsonToFile", 2, relPath, json);
 }
 
 char *readFromFile(time_t now) {
     time_t yesterday = now - 24 * 60 * 60;
     struct tm *date_time = localtime(&yesterday);
-    char filename[FILENAME_LEN];
-    sprintf(filename, "%s/flights_%04d-%02d-%02d.json", FILE_DIR, date_time->tm_year + 1900, date_time->tm_mon + 1,
-            date_time->tm_mday);
+    char relPath[FN_RELATIVE_PATH_MAX_LEN];
+    snprintf(relPath, FN_RELATIVE_PATH_MAX_LEN, "flights/%04d-%02d-%02d.json",
+             date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
+    char filename[FN_ABS_PATH_MAX_LEN()];
+    snprintf(filename, FN_ABS_PATH_MAX_LEN(), "/%s/%s", FILE_DIR, relPath);
     FILE *fp;
     if ((fp = fopen(filename, "r")) == NULL) {
         fprintf(stderr, "Opening File failed: %s\n", filename);
@@ -60,12 +62,13 @@ char *readFromFile(time_t now) {
     if (read != file_size) fprintf(stderr, "Error reading from file");
     fclose(fp);
     content[file_size] = 0;
+    writeLogEntry(1, "readFromFile", 1, relPath);
     return content;
 }
 
-// =========================== Send/Receive json ===============================
+// =========================== Send/Receive Json ===============================
 
-void un_idle_server(void) {
+void unIdleServer(void) {
     CURL *curl = curl_easy_init();
     curl_easy_setopt(curl, CURLOPT_URL, URL_UN_IDLE_SERVER);
     CURLcode res = curl_easy_perform(curl);
@@ -142,7 +145,7 @@ Data *parse(struct memory *response) {
 
 Data *httpPost(time_t t, char *content) {
     CURL *curl = curl_easy_init();
-    char url[FILENAME_LEN] = FILE_DIR;
+    char url[FN_ABS_PATH_MAX_LEN()];
     time_t yesterday = t - 24 * 60 * 60;
     struct tm *date_time = localtime(&yesterday);
     sprintf(url, "%s/%04d-%02d-%02d", URL_POST_FLIGHTS, date_time->tm_year + 1900, date_time->tm_mon + 1,
@@ -187,7 +190,7 @@ int get_timeout(struct aircraft *a, int speed, time_t now, int *secs_since_seen,
     return (int) (*dist_to_cam / meters_per_sec * 1000);
 }
 
-void takePhoto(struct aircraft *a, int speed, time_t now) {
+void takePhoto(struct aircraft *a, time_t now) {
     char dir[200];
     struct tm *date_time = localtime(&now);
     sprintf(dir, "%s/%04d-%02d-%02d", PHOTO_DIR, date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
@@ -196,13 +199,13 @@ void takePhoto(struct aircraft *a, int speed, time_t now) {
 
     double lon_approx;
     int secs_since_seen, dist_to_cam;
-    int timeout = get_timeout(a, speed, now, &secs_since_seen, &lon_approx, &dist_to_cam);
+    int timeout = get_timeout(a, a->speed, now, &secs_since_seen, &lon_approx, &dist_to_cam);
     timeout += 250; // adding some ms to delay photo and better center plane
 
     char command[400] = "";
-    char dt[ISO_DATE_LEN];
-    strftime(dt, ISO_DATE_LEN, "%FT%T", localtime(&now));
-    char callsign[CALL_SIGN_LEN];
+    char dt[ISO_DATE_MAX_LEN];
+    strftime(dt, ISO_DATE_MAX_LEN, "%FT%T", localtime(&now));
+    char callsign[strlen(a->flight)];
     trim(callsign, a->flight);
     sprintf(command, "raspistill --timeout %d --nopreview -o %s/img_%02d-%02d-%02d_%s.jpg &",
             timeout < 1100 ? 1100 : timeout > 5000 ? 5000 : timeout,
@@ -220,7 +223,7 @@ void postPhoto(unsigned long id, char *fn) {
     CURL *curl = curl_easy_init();
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "POST");
 
-    char url[FILENAME_LEN];
+    char url[FN_ABS_PATH_MAX_LEN()];
     sprintf(url, "%s/%lu/image", URL_POST_IMAGE, id);
     curl_easy_setopt(curl, CURLOPT_URL, url);
 
@@ -250,7 +253,7 @@ void postPhoto(unsigned long id, char *fn) {
 void httpPostPhotos(time_t now, Data *data) {
     time_t yesterday = now - 24 * 60 * 60;
     struct tm *date_time = localtime(&yesterday);
-    char photo_dir_date[FILENAME_LEN * 2];
+    char photo_dir_date[FN_ABS_PATH_MAX_LEN() * 2];
     sprintf(photo_dir_date, "%s/%04d-%02d-%02d/", PHOTO_DIR, date_time->tm_year + 1900, date_time->tm_mon + 1,
             date_time->tm_mday);
     struct flight flight;

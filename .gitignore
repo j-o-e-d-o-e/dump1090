@@ -1,5 +1,6 @@
 .idea
+scratch
 bin
-json
+flights
 logs
 src/connect_api.h
