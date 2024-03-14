@@ -43,8 +43,13 @@ TEST(connect, readFromFile) {
     free(content);
 }
 
+TEST(connect, unIdleServer) {
+    TEST_IGNORE();
+    unIdleServer();
+}
+
 TEST(connect, httpPostJson) {
-    TEST_IGNORE(); // change URL_POST_FLIGHTS in connect_api.h if test is active
+    TEST_IGNORE(); // change URL_POST_FLIGHTS in connect_api.h if test is not ignored
     time_t dayAfter = a.seen + 24 * 60 * 60;
     char *json = readFromFile(dayAfter);
     Data *data = httpPostJson(json, dayAfter);
@@ -54,4 +59,28 @@ TEST(connect, httpPostJson) {
 
 TEST(connect, deleteTestFile) {
     if (remove(PATH_TEST_FILE) != 0) perror("Deleting test file failed");
+}
+
+TEST(connect, takePhoto) {
+    TEST_IGNORE();
+    takePhoto(&a, time(NULL));
+}
+
+TEST(connect, cleanUpPhotos) {
+    TEST_IGNORE();
+    cleanUpPhotos();
+}
+
+TEST(connect, httpPostPhotos) {
+//    TEST_IGNORE(); // change URL_POST_PHOTO in connect_api.h if test is not ignored
+    Data *data = malloc(sizeof(*data) + sizeof(struct flight[10]));
+    data->len = 10;
+    for (unsigned char i = 0; i < 10; i++) {
+        struct flight *flight = &(data->flights[i]);
+        flight->id = i;
+        snprintf(flight->callsign, 20, "EWG8RA");
+        snprintf(flight->time, 20, "970-01-01T01:00:00");
+    }
+    httpPostPhotos(data, 0);
+    free(data);
 }

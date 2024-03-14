@@ -26,19 +26,21 @@ void writeJsonToFile(char *json, time_t now) {
     FILE *fp;
     if (access(filename, F_OK) != 0) {
         if ((fp = fopen(filename, "w")) == NULL) {
-            fprintf(stderr, "Creating File failed: %s\n", filename);
+            writeLogEntry(3, "writeJsonToFile", 2, "Creating File failed", relPath);
             exit(EXIT_FAILURE);
         }
         fputs("[\n", fp);
     } else {
         fp = fopen(filename, "r+");
+        if (fp == NULL) {
+            writeLogEntry(3, "writeJsonToFile", 2, "Opening File failed", relPath);
+        }
         fseek(fp, -3, SEEK_END);
         fputs(",\n", fp);
     }
     fputs(json, fp);
     fputs("\n]\n", fp);
     fclose(fp);
-    writeLogEntry(1, "writeJsonToFile", 2, relPath, json);
 }
 
 char *readFromFile(time_t now) {
@@ -51,7 +53,7 @@ char *readFromFile(time_t now) {
     snprintf(filename, FN_ABS_PATH_MAX_LEN(), "/%s/%s", ROOT_DIR, relPath);
     FILE *fp;
     if ((fp = fopen(filename, "r")) == NULL) {
-        fprintf(stderr, "Opening File failed: %s\n", filename);
+        writeLogEntry(3, "readFromFile", 2, "Opening File failed", relPath);
         return "[]";
     }
     fseek(fp, 0, SEEK_END);
@@ -59,10 +61,13 @@ char *readFromFile(time_t now) {
     rewind(fp);
     char *content = malloc(sizeof(char) * file_size + 1);
     size_t read = fread(content, 1, file_size, fp);
-    if (read != file_size) fprintf(stderr, "Error reading from file");
+    if (read != file_size) {
+        free(content);
+        writeLogEntry(3, "readFromFile", 2, "Reading File failed", relPath);
+        exit(EXIT_FAILURE);
+    }
     fclose(fp);
     content[file_size] = 0;
-    writeLogEntry(1, "readFromFile", 1, relPath);
     return content;
 }
 
@@ -71,8 +76,8 @@ char *readFromFile(time_t now) {
 void unIdleServer(void) {
     CURL *curl = curl_easy_init();
     curl_easy_setopt(curl, CURLOPT_URL, URL_UN_IDLE_SERVER);
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) writeLogEntry(3, "unIdleServer", 1, curl_easy_strerror(res));
+    CURLcode ret = curl_easy_perform(curl);
+    if (ret != CURLE_OK) writeLogEntry(3, "unIdleServer", 2, "Un-idling server failed", curl_easy_strerror(ret));
     curl_easy_cleanup(curl);
 }
 
@@ -106,7 +111,7 @@ Data *parse(struct memory *response) {
     char tmp[500];
     char *line, *val;
     int count = 0, buffer = 10;
-    Data *data = malloc(sizeof(Data) + sizeof(struct flight[buffer]));
+    Data *data = malloc(sizeof(*data) + sizeof(struct flight[buffer]));
     while ((line = strtok(NULL, "{")) != NULL) {
         line[strlen(line) - 2] = '\0';
         if (count == buffer) {
@@ -149,11 +154,12 @@ Data *parse(struct memory *response) {
 
 Data *httpPostJson(char *json, time_t now) {
     CURL *curl = curl_easy_init();
-    char url[FN_ABS_PATH_MAX_LEN()];
+    int maxLen = strlen(URL_POST_FLIGHTS) + 40;
+    char url[maxLen];
     time_t yesterday = now - 24 * 60 * 60;
     struct tm *date_time = localtime(&yesterday);
-    sprintf(url, "%s/%04d-%02d-%02d", URL_POST_FLIGHTS, date_time->tm_year + 1900, date_time->tm_mon + 1,
-            date_time->tm_mday);
+    snprintf(url, maxLen, "%s/%04d-%02d-%02d",
+             URL_POST_FLIGHTS, date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, -1L);
@@ -163,18 +169,19 @@ Data *httpPostJson(char *json, time_t now) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response); // assigned to userp in callback
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
-    char authorization[256];
-    sprintf(authorization, "Authorization: %s", API_KEY);
-    headers = curl_slist_append(headers, authorization);
+    maxLen = strlen(API_KEY) + 20;
+    char auth[maxLen];
+    snprintf(auth, maxLen, "Authorization: %s", API_KEY);
+    headers = curl_slist_append(headers, auth);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    CURLcode res = curl_easy_perform(curl);
+    CURLcode ret = curl_easy_perform(curl);
     Data *data = NULL;
-    if (res != CURLE_OK) {
-        writeLogEntry(3, "httpPostJson", 2, "Sending data failed: ", curl_easy_strerror(res));
+    if (ret != CURLE_OK) {
+        writeLogEntry(3, "httpPostJson", 3, "Sending data failed", url, curl_easy_strerror(ret));
     } else {
         char msg[20];
         snprintf(msg, 20, "Got %zu bytes back", response.size);
-        writeLogEntry(1, "httpPostJson", 2, "Sending data succeeded: ", msg);
+        writeLogEntry(1, "httpPostJson", 2, "Sending data succeeded", msg);
         if (response.size > 0) data = parse(&response);
     }
     free(response.memory);
@@ -185,7 +192,9 @@ Data *httpPostJson(char *json, time_t now) {
 
 // =============================== Photos ===================================
 
-int get_timeout(struct aircraft *a, int speed, time_t now) {
+int getTimeout(struct aircraft *a, int speed, time_t now) {
+    const float CAM_LON = 6.961f;
+    const int DIST_LON = 70; // alternatively, 75 or even 80
     int secs_since_seen = (int) (now - a->seenLatLon);
     double meters_per_sec = speed / 3.6;
     double lon_approx = secs_since_seen > 0 ?
@@ -195,47 +204,51 @@ int get_timeout(struct aircraft *a, int speed, time_t now) {
 }
 
 void takePhoto(struct aircraft *a, time_t now) {
-    char dir[200];
+    int maxLen = FN_ABS_PATH_MAX_LEN();
+    char dir[maxLen];
     struct tm *date_time = localtime(&now);
-    sprintf(dir, "%s/%04d-%02d-%02d", PHOTO_DIR, date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
+    snprintf(dir, maxLen, "%s/photos/%04d-%02d-%02d",
+             ROOT_DIR, date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
     struct stat st = {0};
     if (stat(dir, &st) == -1) mkdir(dir, 0700);
 
-    int timeout = get_timeout(a, a->speed, now);
+    int timeout = getTimeout(a, a->speed, now);
     timeout += 250; // adding some ms to delay photo and better center plane
-
-    char command[400];
-    char dt[ISO_DATE_MAX_LEN];
-    strftime(dt, ISO_DATE_MAX_LEN, "%FT%T", localtime(&now));
     char callsign[strlen(a->flight) + 1];
     trim(callsign, a->flight);
-    sprintf(command, "raspistill --timeout %d --nopreview -o %s/img_%02d-%02d-%02d_%s.jpg &",
-            timeout < 1100 ? 1100 : timeout > 5000 ? 5000 : timeout,
-            dir, date_time->tm_hour, date_time->tm_min, date_time->tm_sec, callsign);
+    char command[COMMAND_MAX_LEN];
+    snprintf(command, COMMAND_MAX_LEN, "raspistill --timeout %d --nopreview -o %s/%02d-%02d-%02d_%s.jpg &",
+             timeout < 1100 ? 1100 : timeout > 5000 ? 5000 : timeout,
+             dir, date_time->tm_hour, date_time->tm_min, date_time->tm_sec, callsign);
     system(command);
 }
 
 void cleanUpPhotos(void) {
-    char command[80];
-    sprintf(command, "python3 %s &", PHOTO_CLEAN_UP_PY);
+    char command[COMMAND_MAX_LEN];
+    snprintf(command, COMMAND_MAX_LEN, "python3 %s/py/cv2_img_ft.py &", ROOT_DIR);
     system(command);
+    writeLogEntry(1, "cleanUpPhotos", 1, command);
 }
 
-void postPhoto(unsigned long id, char *fn) {
+// =========================== Send Photos ===============================
+
+unsigned char postPhoto(unsigned long id, char *fn) {
     CURL *curl = curl_easy_init();
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "POST");
 
-    char url[FN_ABS_PATH_MAX_LEN()];
-    sprintf(url, "%s/%lu/image", URL_POST_IMAGE, id);
+    int maxLen = strlen(URL_POST_PHOTO) + 40;
+    char url[maxLen];
+    snprintf(url, maxLen, "%s/%lu/image", URL_POST_PHOTO, id);
     curl_easy_setopt(curl, CURLOPT_URL, url);
 
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_DEFAULT_PROTOCOL, "https");
 
     struct curl_slist *headers = NULL;
-    char authorization[256];
-    sprintf(authorization, "Authorization: %s", API_KEY);
-    headers = curl_slist_append(headers, authorization);
+    maxLen = strlen(API_KEY) + 20;
+    char auth[maxLen];
+    snprintf(auth, maxLen, "Authorization: %s", API_KEY);
+    headers = curl_slist_append(headers, auth);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
     curl_mime *mime = curl_mime_init(curl);
@@ -244,25 +257,35 @@ void postPhoto(unsigned long id, char *fn) {
 
     curl_mime_filedata(part, fn);
     curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-        fprintf(stderr, "Returned %s\n", curl_easy_strerror(res));
-    }
+    CURLcode ret = curl_easy_perform(curl);
     curl_mime_free(mime);
     curl_easy_cleanup(curl);
+    if (ret != CURLE_OK) {
+        writeLogEntry(3, "postPhoto", 4, "Sending photo failed", fn, url, curl_easy_strerror(ret));
+        return 0;
+    } else return 1;
 }
 
 void httpPostPhotos(Data *data, time_t now) {
+    int maxLen = FN_ABS_PATH_MAX_LEN();
+    char dir[maxLen];
     time_t yesterday = now - 24 * 60 * 60;
     struct tm *date_time = localtime(&yesterday);
-    char photo_dir_date[FN_ABS_PATH_MAX_LEN() * 2];
-    sprintf(photo_dir_date, "%s/%04d-%02d-%02d/", PHOTO_DIR, date_time->tm_year + 1900, date_time->tm_mon + 1,
-            date_time->tm_mday);
+    snprintf(dir, maxLen, "%s/photos/%04d-%02d-%02d/",
+             ROOT_DIR, date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
     struct flight flight;
+    int total = 0, success = 0;
     for (int i = 0; i < data->len; i++) {
         flight = data->flights[i];
-        char fn[560];
-        sprintf(fn, "%s/img_%s_%s.jpg", photo_dir_date, flight.time, flight.callsign);
-        if (access(fn, F_OK) == 0) postPhoto(flight.id, fn);
+        char fn[maxLen + 40];
+        snprintf(fn, maxLen, "%s/%s_%s.jpg", dir, flight.time, flight.callsign);
+        if (access(fn, F_OK) == 0) {
+            unsigned char ret = postPhoto(flight.id, fn);
+            if (ret) success++;
+        }
+        total++;
     }
+    char summary[30];
+    snprintf(summary, 30, "success/total: %d/%d", success, total);
+    writeLogEntry(1, "httpPostPhotos", 2, dir, summary);
 }

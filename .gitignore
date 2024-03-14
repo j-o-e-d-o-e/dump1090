@@ -3,5 +3,6 @@ scratch
 bin/*.out
 flights/*.json
 logs/*.log
-photos/*.jpg
+photos/*
+scp
 src/connect_api.h

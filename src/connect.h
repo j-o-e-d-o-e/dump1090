@@ -4,19 +4,11 @@
 #include "main.h"
 #include "dump1090.h"
 
-#ifdef __arm__
-#define PHOTO_DIR  ROOT_DIR "/photos"
-#define PHOTO_CLEAN_UP_PY ROOT_DIR "/py/cv2_img_ft.py"
-#else
-#define PHOTO_DIR ""
-#define PHOTO_CLEAN_UP_PY ""
-#endif
 #define ISO_DATE_MAX_LEN 20
 #define JSON_MAX_LEN 128
 #define FN_RELATIVE_PATH_MAX_LEN 25
 #define FN_ABS_PATH_MAX_LEN() strlen(ROOT_DIR) + FN_RELATIVE_PATH_MAX_LEN + 2
-#define CAM_LON 6.961
-#define DIST_LON 70 // alternatively, 75 or even 80
+#define COMMAND_MAX_LEN 140
 
 struct flight {
     unsigned long id;
