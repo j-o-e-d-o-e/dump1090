@@ -113,7 +113,7 @@ void processData(void) {
             unIdleServer();
             Data *data = httpPostJson(json, now);
             free(json);
-            if (data != NULL && data->len > 0) httpPostPhotos(now, data);
+            if (data != NULL && data->len > 0) httpPostPhotos(data, now);
             free(data);
             Modes.flag_send = 1;
             printf("\x1b[H\x1b[2J"); // Clear the screen

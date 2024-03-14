@@ -22,7 +22,7 @@ void writeJsonToFile(char *json, time_t now) {
     snprintf(relPath, FN_RELATIVE_PATH_MAX_LEN, "flights/%04d-%02d-%02d.json",
              date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
     char filename[FN_ABS_PATH_MAX_LEN()];
-    snprintf(filename, FN_ABS_PATH_MAX_LEN(), "/%s/%s", FILE_DIR, relPath);
+    snprintf(filename, FN_ABS_PATH_MAX_LEN(), "/%s/%s", ROOT_DIR, relPath);
     FILE *fp;
     if (access(filename, F_OK) != 0) {
         if ((fp = fopen(filename, "w")) == NULL) {
@@ -48,7 +48,7 @@ char *readFromFile(time_t now) {
     snprintf(relPath, FN_RELATIVE_PATH_MAX_LEN, "flights/%04d-%02d-%02d.json",
              date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
     char filename[FN_ABS_PATH_MAX_LEN()];
-    snprintf(filename, FN_ABS_PATH_MAX_LEN(), "/%s/%s", FILE_DIR, relPath);
+    snprintf(filename, FN_ABS_PATH_MAX_LEN(), "/%s/%s", ROOT_DIR, relPath);
     FILE *fp;
     if ((fp = fopen(filename, "r")) == NULL) {
         fprintf(stderr, "Opening File failed: %s\n", filename);
@@ -185,15 +185,13 @@ Data *httpPostJson(char *json, time_t now) {
 
 // =============================== Photos ===================================
 
-int get_timeout(struct aircraft *a, int speed, time_t now, int *secs_since_seen, double *lon_approx, int *dist_to_cam) {
-    *secs_since_seen = (int) (now - a->seenLatLon);
+int get_timeout(struct aircraft *a, int speed, time_t now) {
+    int secs_since_seen = (int) (now - a->seenLatLon);
     double meters_per_sec = speed / 3.6;
-    *lon_approx = *secs_since_seen > 0 ?
-                  a->lon - (int) (meters_per_sec * *secs_since_seen / DIST_LON) * 0.001
-                                       : a->lon;
-    *dist_to_cam = (int) ((*lon_approx - CAM_LON) * 1000) * DIST_LON;
-    // e.g. 120m / 73.88m/s * 1000 = 1624s
-    return (int) (*dist_to_cam / meters_per_sec * 1000);
+    double lon_approx = secs_since_seen > 0 ?
+                        a->lon - (int) (meters_per_sec * secs_since_seen / DIST_LON) * 0.001 : a->lon;
+    int dist_to_cam = (int) ((lon_approx - CAM_LON) * 1000) * DIST_LON;
+    return (int) (dist_to_cam / meters_per_sec * 1000); // e.g. 120m / 73.88m/s * 1000 = 1624s
 }
 
 void takePhoto(struct aircraft *a, time_t now) {
@@ -203,12 +201,10 @@ void takePhoto(struct aircraft *a, time_t now) {
     struct stat st = {0};
     if (stat(dir, &st) == -1) mkdir(dir, 0700);
 
-    double lon_approx;
-    int secs_since_seen, dist_to_cam;
-    int timeout = get_timeout(a, a->speed, now, &secs_since_seen, &lon_approx, &dist_to_cam);
+    int timeout = get_timeout(a, a->speed, now);
     timeout += 250; // adding some ms to delay photo and better center plane
 
-    char command[400] = "";
+    char command[400];
     char dt[ISO_DATE_MAX_LEN];
     strftime(dt, ISO_DATE_MAX_LEN, "%FT%T", localtime(&now));
     char callsign[strlen(a->flight) + 1];
@@ -220,7 +216,7 @@ void takePhoto(struct aircraft *a, time_t now) {
 }
 
 void cleanUpPhotos(void) {
-    char command[250] = "";
+    char command[80];
     sprintf(command, "python3 %s &", PHOTO_CLEAN_UP_PY);
     system(command);
 }
@@ -256,7 +252,7 @@ void postPhoto(unsigned long id, char *fn) {
     curl_easy_cleanup(curl);
 }
 
-void httpPostPhotos(time_t now, Data *data) {
+void httpPostPhotos(Data *data, time_t now) {
     time_t yesterday = now - 24 * 60 * 60;
     struct tm *date_time = localtime(&yesterday);
     char photo_dir_date[FN_ABS_PATH_MAX_LEN() * 2];

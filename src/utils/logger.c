@@ -9,7 +9,7 @@
 char *filename(struct tm *dt) {
     int maxLen = LOG_FILENAME_MAX_LEN();
     char *fn = malloc(sizeof(char) * maxLen);
-    snprintf(fn, maxLen, "%s/logs/%04d-%02d-%02d.log", FILE_DIR, dt->tm_year + 1900, dt->tm_mon + 1,
+    snprintf(fn, maxLen, "%s/logs/%04d-%02d-%02d.log", ROOT_DIR, dt->tm_year + 1900, dt->tm_mon + 1,
              dt->tm_mday);
     return fn;
 }

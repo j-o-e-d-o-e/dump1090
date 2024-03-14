@@ -1,6 +1,7 @@
 .idea
 scratch
-bin
-flights
-logs
+bin/*.out
+flights/*.json
+logs/*.log
+photos/*.jpg
 src/connect_api.h
