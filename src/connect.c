@@ -225,7 +225,7 @@ void takePhoto(struct aircraft *a, time_t now) {
 
 void cleanUpPhotos(void) {
     char command[COMMAND_MAX_LEN];
-    snprintf(command, COMMAND_MAX_LEN, "python3 %s/py/cv2_img_ft.py &", ROOT_DIR);
+    snprintf(command, COMMAND_MAX_LEN, "python3 %s/py/clean_up_photos.py &", ROOT_DIR);
     system(command);
     writeLogEntry(1, "cleanUpPhotos", 1, command);
 }

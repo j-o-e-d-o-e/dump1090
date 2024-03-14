@@ -72,7 +72,7 @@ TEST(connect, cleanUpPhotos) {
 }
 
 TEST(connect, httpPostPhotos) {
-//    TEST_IGNORE(); // change URL_POST_PHOTO in connect_api.h if test is not ignored
+    TEST_IGNORE(); // change URL_POST_PHOTO in connect_api.h if test is not ignored
     Data *data = malloc(sizeof(*data) + sizeof(struct flight[10]));
     data->len = 10;
     for (unsigned char i = 0; i < 10; i++) {
