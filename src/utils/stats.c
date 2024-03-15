@@ -18,6 +18,8 @@ void increaseStatsTotal(void) {
 void resetStatsTotal(void){
     stats.total = 0;
     stats.total_changed = 1;
+    stats.avg = 0;
+    stats.freq = 0;
 }
 
 int minutesPassedToday(time_t now) {
@@ -48,6 +50,6 @@ void printStats(time_t now) {
         setAverage(stats.total, diff_min);
         setFrequency(stats.total, diff_min);
     }
-    printf("Total/day: %8d | Freq/min: %6.2f | Avg/h: %6.2f | Start: %s\n",
-           stats.total, stats.freq, stats.avg, stats.start_time_str);
+    printf("Total/day: %8d | Avg/h: %6.2f | Freq/min: %6.2f | Start: %s\n",
+           stats.total, stats.avg, stats.freq, stats.start_time_str);
 }
