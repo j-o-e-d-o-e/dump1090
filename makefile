@@ -49,4 +49,4 @@ $(MEM_CHECK_TARGET): $(SRC_FILES)
 
 .PHONY: clean
 clean:
-	@rm -f $(MEM_CHECK_TARGET) $(TEST_TARGET) $(SRC_TARGET) json/*.json
+	@rm -f $(MEM_CHECK_TARGET) $(TEST_TARGET) $(SRC_TARGET)
