@@ -4,14 +4,19 @@
 
 struct Stats stats;
 
-void setStartTime(void) {
+void setStatsStartTime(void) {
     stats.start_time = time(NULL);
     struct tm *start_time_tm = localtime(&stats.start_time);
     strftime(stats.start_time_str, sizeof(stats.start_time_str), "%a, %b %d, %H:%Mh", start_time_tm);
 }
 
-void increaseTotal(void) {
+void increaseStatsTotal(void) {
     stats.total++;
+    stats.total_changed = 1;
+}
+
+void resetStatsTotal(void){
+    stats.total = 0;
     stats.total_changed = 1;
 }
 
@@ -43,6 +48,6 @@ void printStats(time_t now) {
         setAverage(stats.total, diff_min);
         setFrequency(stats.total, diff_min);
     }
-    printf("Total: %8d | Freq/min: %8.2f | Avg/h: %8.2f | Start: %s\n",
+    printf("Total/day: %8d | Freq/min: %6.2f | Avg/h: %6.2f | Start: %s\n",
            stats.total, stats.freq, stats.avg, stats.start_time_str);
 }

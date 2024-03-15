@@ -303,7 +303,7 @@ void interactiveShowData(struct aircraft *a) {
                 continue;
             }
             if (strlen(a->flight) != 0 && a->lon < SET_LON && isNewAddr(a->addr)) {
-                increaseTotal();
+                increaseStatsTotal();
                 char json[JSON_MAX_LEN];
                 aircraftToJson(a, json);
                 writeJsonToFile(json, now);

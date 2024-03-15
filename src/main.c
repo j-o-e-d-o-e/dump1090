@@ -101,6 +101,7 @@ void processData(void) {
         if (date_time->tm_hour == 0 && date_time->tm_min == 0) {
             Modes.flag_send = 0;
             Modes.flag_photos_clean_up = 0;
+            resetStatsTotal();
         }
 #ifdef __arm__
         if (!Modes.flag_photos_clean_up && date_time->tm_hour == 0 && date_time->tm_min == 30){
@@ -135,7 +136,7 @@ int main(int argc, char **argv) {
     handleArguments(argc, argv);
     initializeComponents();
     atexit(closeComponents);
-    setStartTime();
+    setStatsStartTime();
     processData();
     closeComponents();
 }

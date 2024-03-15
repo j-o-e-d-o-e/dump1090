@@ -12,8 +12,10 @@ struct Stats {
     float freq;
 };
 
-void setStartTime(void);
+void setStatsStartTime(void);
 
-void increaseTotal(void);
+void increaseStatsTotal(void);
+
+void resetStatsTotal(void);
 
 void printStats(time_t now);
