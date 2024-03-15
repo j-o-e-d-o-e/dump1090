@@ -149,6 +149,9 @@ Data *parse(struct memory *response) {
         exit(EXIT_FAILURE);
     }
     data = tmp_data;
+    char msg[30];
+    snprintf(msg, 30, "%d flights", data->len);
+    writeLogEntry(1, "parse", 2, "Parsing received data succeeded", msg);
     return data;
 }
 
@@ -179,8 +182,8 @@ Data *httpPostJson(char *json, time_t now) {
     if (ret != CURLE_OK) {
         writeLogEntry(3, "httpPostJson", 3, "Sending data failed", url, curl_easy_strerror(ret));
     } else {
-        char msg[20];
-        snprintf(msg, 20, "Got %zu bytes back", response.size);
+        char msg[30];
+        snprintf(msg, 30, "Got %zu bytes back", response.size);
         writeLogEntry(1, "httpPostJson", 2, "Sending data succeeded", msg);
         if (response.size > 0) data = parse(&response);
     }
@@ -271,18 +274,19 @@ void httpPostPhotos(Data *data, time_t now) {
     char dir[maxLen];
     time_t yesterday = now - 24 * 60 * 60;
     struct tm *date_time = localtime(&yesterday);
-    snprintf(dir, maxLen, "%s/photos/%04d-%02d-%02d/",
+    snprintf(dir, maxLen, "%s/photos/%04d-%02d-%02d",
              ROOT_DIR, date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
     struct flight flight;
     int total = 0, success = 0;
+    maxLen += 30;
     for (int i = 0; i < data->len; i++) {
         flight = data->flights[i];
-        char fn[maxLen + 40];
+        char fn[maxLen];
         snprintf(fn, maxLen, "%s/%s_%s.jpg", dir, flight.time, flight.callsign);
         if (access(fn, F_OK) == 0) {
             unsigned char ret = postPhoto(flight.id, fn);
             if (ret) success++;
-        }
+        } else writeLogEntry(3, "httpPostPhotos", 2, "Accessing Photo failed", fn);
         total++;
     }
     char summary[30];

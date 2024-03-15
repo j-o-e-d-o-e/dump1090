@@ -74,13 +74,14 @@ TEST(connect, cleanUpPhotos) {
 TEST(connect, httpPostPhotos) {
     TEST_IGNORE(); // change URL_POST_PHOTO in connect_api.h if test is not ignored
     Data *data = malloc(sizeof(*data) + sizeof(struct flight[10]));
-    data->len = 10;
-    for (unsigned char i = 0; i < 10; i++) {
+    data->len = 3;
+    int h = 19;
+    for (int i = 0; i < data->len; i++) {
         struct flight *flight = &(data->flights[i]);
         flight->id = i;
-        snprintf(flight->callsign, 20, "EWG8RA");
-        snprintf(flight->time, 20, "970-01-01T01:00:00");
+        snprintf(flight->callsign, 20, "EWG6979");
+        snprintf(flight->time, 20, "%02d-%02d-%02d", h + i, 5, 29);
     }
-    httpPostPhotos(data, 0);
+    httpPostPhotos(data, time(NULL));
     free(data);
 }
