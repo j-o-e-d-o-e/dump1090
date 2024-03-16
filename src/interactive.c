@@ -29,6 +29,7 @@
 
 #include "dump1090.h"
 #include "interactive.h"
+#include "interactive_local.h"
 #include "modes/mode_ac.h"
 #include "modes/mode_s.h"
 #include "connect.h"

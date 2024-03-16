@@ -6,3 +6,4 @@ logs/*.log
 photos/*
 scp
 src/connect_api.h
+src/interactive_local.h

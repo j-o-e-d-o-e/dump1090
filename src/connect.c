@@ -277,7 +277,7 @@ void httpPostPhotos(Data *data, time_t now) {
     snprintf(dir, maxLen, "%s/photos/%04d-%02d-%02d",
              ROOT_DIR, date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
     struct flight flight;
-    int total = 0, success = 0;
+    int total = 0, success = 0, fail = 0;
     maxLen += 30;
     for (int i = 0; i < data->len; i++) {
         flight = data->flights[i];
@@ -286,10 +286,10 @@ void httpPostPhotos(Data *data, time_t now) {
         if (access(fn, F_OK) == 0) {
             unsigned char ret = postPhoto(flight.id, fn);
             if (ret) success++;
-        } else writeLogEntry(3, "httpPostPhotos", 2, "Accessing Photo failed", fn);
+        } fail++;
         total++;
     }
-    char summary[30];
-    snprintf(summary, 30, "success/total: %d/%d", success, total);
+    char summary[40];
+    snprintf(summary, 40, "success+deleted/total: %d+%d/%d", success, fail, total);
     writeLogEntry(1, "httpPostPhotos", 2, dir, summary);
 }
