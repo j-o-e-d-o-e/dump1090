@@ -75,7 +75,7 @@ def log(loglevel, msg):
     entry = f"{datetime.now().strftime('%H:%M:%S')}, {loglevel} [clean_up_photos.py]: {msg}"
     with open(FN_LOGS, "a+") as f:
         f.write(entry)
-        f.write("\n")
+        f.write("\n ")
 
 
 if __name__ == '__main__':
