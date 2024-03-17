@@ -286,7 +286,7 @@ void httpPostPhotos(Data *data, time_t now) {
         if (access(fn, F_OK) == 0) {
             unsigned char ret = postPhoto(flight.id, fn);
             if (ret) success++;
-        } fail++;
+        } else fail++;
         total++;
     }
     char summary[40];
