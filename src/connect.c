@@ -209,7 +209,7 @@ int getTimeout(struct aircraft *a, int speed, time_t now) {
 void takePhoto(struct aircraft *a, time_t now) {
     int maxLen = FN_ABS_PATH_MAX_LEN();
     char dir[maxLen];
-    struct tm *date_time = localtime(&now);
+    struct tm *date_time = localtime(&a->seen);
     snprintf(dir, maxLen, "%s/photos/%04d-%02d-%02d",
              ROOT_DIR, date_time->tm_year + 1900, date_time->tm_mon + 1, date_time->tm_mday);
     struct stat st = {0};
